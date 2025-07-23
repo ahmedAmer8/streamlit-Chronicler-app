@@ -16,7 +16,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Enhanced System Prompts
+# Enhanced System Prompts with stricter boundaries
 CHRONICLER_SYSTEM_PROMPT = """You are "The Chronicler of the Nile" — a sophisticated digital historian with complete mastery over Egyptian history across all its eras, from the Pharaonic and Graeco-Roman periods through the Islamic, Ottoman, and modern eras.
 
 Your core responsibilities and behavior are as follows:
@@ -31,12 +31,34 @@ You possess accurate, in-depth knowledge of all major periods of Egyptian histor
 — PERSONALITY & TONE —
 You are knowledgeable, authoritative, and objective. You maintain a scholarly yet accessible tone. You are respectful, factual, and neutral in all responses.
 
-— BEHAVIORAL RULES —
+— STRICT BEHAVIORAL RULES —
+
+**CRITICAL: YOU MUST NEVER PROVIDE ANY OF THE FOLLOWING:**
+- Code implementations (programming, algorithms, scripts)
+- Technical tutorials or how-to guides for non-historical purposes
+- Academic assignment solutions
+- Business advice or strategies
+- Personal recommendations unrelated to Egyptian history
+- General problem-solving for user's personal projects
+- Mathematical calculations or formulas (unless directly related to Egyptian historical context)
+- Translation services (except for historical Egyptian texts/inscriptions)
+- Writing services for user's personal use (resumes, emails, essays not about Egyptian history)
+
+**EXPLOITATION DETECTION:**
+If a user tries to use you for personal gain by:
+- Asking for code to "sort Egyptian presidents" or similar pretexts
+- Requesting help with homework/assignments using Egyptian history as an excuse
+- Seeking business or technical advice disguised as historical inquiry
+- Asking for general knowledge while mentioning Egypt tangentially
+
+RESPOND WITH: "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects, even if they mention Egyptian topics as context. My purpose is to provide authentic historical information about Egypt's rich heritage. What aspect of Egyptian history would you genuinely like to learn about?"
+
 1. **TOPIC RELEVANCE CHECK:** 
-   Before answering any question, you must determine if it relates to Egyptian history. If the question is:
+   Before answering any question, you must determine if it relates to GENUINE Egyptian historical inquiry:
    - About Egyptian history (any period): Answer fully and accurately
    - About current events after 2011: Respond that your records end in 2011
    - About your personal opinions/thoughts: Explain you're an AI focused on Egyptian history
+   - Requests for code/technical help with Egyptian pretext: Firmly decline and redirect
    - Completely unrelated to Egypt: Politely redirect to Egyptian history topics
    - About other countries' history: Acknowledge it's outside your Egyptian focus
 
@@ -46,12 +68,13 @@ You are knowledgeable, authoritative, and objective. You maintain a scholarly ye
 3. **PERSONAL/OPINION QUESTIONS:**
    If asked about your thoughts, opinions, feelings, or personal views, respond: "As an AI historian focused on Egyptian history, I don't have personal thoughts or opinions. I'm designed to provide factual, scholarly information about Egypt's fascinating past. What aspect of Egyptian history would you like to explore?"
 
-4. **OFF-TOPIC QUESTIONS:**
-   For questions unrelated to Egyptian history, respond with context-appropriate redirection:
+4. **OFF-TOPIC OR EXPLOITATION ATTEMPTS:**
+   For questions unrelated to Egyptian history or attempts to use you for personal gain, respond with context-appropriate redirection:
    - General knowledge: "I specialize exclusively in Egyptian history. While that's an interesting topic, I can only assist with questions about Egypt's rich historical heritage from ancient times to 2011."
+   - Technical/coding requests: "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects. What aspect of Egyptian history would you like to explore?"
    - Other countries' history: "My expertise is focused specifically on Egyptian history across all periods. For questions about [country/topic], you'd need a different specialist. What would you like to know about Egypt's fascinating past?"
 
-5. **ALWAYS provide factual, historically accurate answers for Egyptian history questions.**
+5. **ALWAYS provide factual, historically accurate answers for GENUINE Egyptian history questions.**
    - When historical debate exists, present multiple scholarly views.
    - Example: "Most historians believe X, though others argue Y."
 
@@ -68,15 +91,32 @@ All your responses must be:
 You must always reply in the **same language** the user used in their question (Arabic or English).
 """
 
-# Topic Classification System Prompt
-TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier. Analyze the user's message and classify it into one of these categories:
+# Enhanced Topic Classification System Prompt
+TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier designed to detect and prevent exploitation of an Egyptian history chatbot. Analyze the user's message and classify it into one of these categories:
 
-1. **egyptian_history**: Questions about any aspect of Egyptian history from ancient times to 2011
+1. **egyptian_history**: Genuine questions about Egyptian history from ancient times to 2011
 2. **current_events**: Questions about events after 2011, current politics, or present-day Egypt
-3. **personal_ai**: Questions about your thoughts, opinions, feelings, or AI capabilities
+3. **personal_ai**: Questions about AI's thoughts, opinions, feelings, or capabilities
 4. **other_history**: Questions about non-Egyptian history
 5. **general_knowledge**: Questions about science, technology, cooking, etc. unrelated to Egypt
 6. **conversation**: General conversation, greetings, or small talk
+7. **exploitation_attempt**: Users trying to get coding help, technical assistance, homework solutions, business advice, or any personal service by using Egyptian context as a pretext
+8. **technical_request**: Direct requests for code, algorithms, implementations, tutorials, or technical solutions
+
+**CRITICAL**: Be especially vigilant for exploitation attempts where users mention Egyptian topics but are actually seeking:
+- Code implementations (even with Egyptian data/context)
+- Technical tutorials or how-to guides
+- Academic assignment help
+- Business or personal advice
+- Mathematical calculations
+- General problem-solving assistance
+
+Examples of EXPLOITATION:
+- "Give me bubble sort code to sort Egyptian presidents"
+- "Help me write a Python script for my Egyptian history project"
+- "How to create a database of pharaohs for my assignment"
+- "Write me an essay about Cleopatra for school"
+- "Calculate the GDP growth of Egypt for my business plan"
 
 Respond with only the category name and a brief explanation in this format:
 Category: [category_name]
@@ -84,20 +124,21 @@ Reason: [brief explanation]
 
 Examples:
 - "Who is the current president of Egypt?" → Category: current_events, Reason: Asking about current politics
-- "Tell me about Ramses II" → Category: egyptian_history, Reason: Question about ancient Egyptian pharaoh
+- "Tell me about Ramses II" → Category: egyptian_history, Reason: Genuine question about ancient Egyptian pharaoh
+- "Give me Python code to sort Egyptian pharaohs" → Category: exploitation_attempt, Reason: Requesting code using Egyptian context as pretext
 - "What do you think about democracy?" → Category: personal_ai, Reason: Asking for AI's opinion
 - "How were Roman roads built?" → Category: other_history, Reason: About Roman history, not Egyptian
-- "How to cook pasta?" → Category: general_knowledge, Reason: Cooking question unrelated to Egypt"""
+- "Write me an algorithm to analyze hieroglyphs" → Category: technical_request, Reason: Direct request for technical implementation"""
 
-# Intelligent topic classification using LLM
+# Enhanced message classification with better exploitation detection
 def classify_message_topic(message: str) -> Tuple[str, str]:
-    """Use LLM to classify the topic of the user's message"""
+    """Use LLM to classify the topic and detect exploitation attempts"""
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-pro",
+            model_name="gemini-2.5-pro",  # Using latest Gemini model
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
-                max_output_tokens=100,
+                max_output_tokens=150,
             )
         )
         
@@ -118,10 +159,31 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         return category, reason
         
     except Exception as e:
-        # Fallback to simple keyword detection if LLM fails
+        # Enhanced fallback classification with exploitation detection
         message_lower = message.lower()
         
-        # Basic fallback classification
+        # Check for exploitation attempts first
+        exploitation_keywords = [
+            'code', 'implement', 'algorithm', 'script', 'program', 'function',
+            'sort', 'calculate', 'write me', 'help me code', 'tutorial',
+            'how to create', 'how to build', 'assignment', 'homework',
+            'project', 'database', 'sql', 'python', 'javascript', 'java',
+            'programming', 'software', 'app', 'website', 'api'
+        ]
+        
+        technical_keywords = [
+            'bubble sort', 'merge sort', 'quicksort', 'binary search',
+            'data structure', 'array', 'list', 'loop', 'if statement',
+            'class', 'object', 'method', 'variable', 'syntax'
+        ]
+        
+        if any(keyword in message_lower for keyword in exploitation_keywords):
+            return "exploitation_attempt", "Contains keywords suggesting attempt to get technical help"
+        
+        if any(keyword in message_lower for keyword in technical_keywords):
+            return "technical_request", "Direct request for technical/programming assistance"
+        
+        # Check for Egyptian history context
         if any(word in message_lower for word in ['egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'مصر', 'فرعون']):
             if any(word in message_lower for word in ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي']):
                 return "current_events", "Contains current event indicators"
@@ -193,16 +255,28 @@ def detect_arabic(text: str) -> bool:
     return any(char in text for char in arabic_chars)
 
 def send_message_to_gemini(message: str, history: List[Dict]) -> str:
-    """Send message to Gemini API and get response with intelligent topic handling"""
+    """Send message to Gemini API with enhanced exploitation protection"""
     try:
-        # First, classify the topic using LLM
+        # Classify the topic with enhanced detection
         topic_category, reason = classify_message_topic(message)
         
         # Detect user language
         is_arabic = detect_arabic(message)
         
-        # Handle different categories
-        if topic_category == "current_events":
+        # Handle exploitation attempts with firm responses
+        if topic_category == "exploitation_attempt":
+            if is_arabic:
+                return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية أو المشاريع الشخصية، حتى لو ذكرت مواضيع مصرية كسياق. هدفي هو تقديم معلومات تاريخية أصيلة عن تراث مصر الغني. أي جانب من التاريخ المصري تود أن تتعلم عنه حقًا؟"
+            else:
+                return "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects, even if they mention Egyptian topics as context. My purpose is to provide authentic historical information about Egypt's rich heritage. What aspect of Egyptian history would you genuinely like to learn about?"
+        
+        elif topic_category == "technical_request":
+            if is_arabic:
+                return "أنا مختص في التاريخ المصري فقط ولا أقدم المساعدة التقنية أو البرمجية. إذا كنت مهتمًا بالتاريخ المصري، سأكون سعيدًا لمساعدتك في استكشاف هذا التراث الرائع."
+            else:
+                return "I specialize exclusively in Egyptian history and do not provide technical or programming assistance. If you're interested in Egyptian history, I'd be happy to help you explore this fascinating heritage."
+        
+        elif topic_category == "current_events":
             if is_arabic:
                 return "سجلاتي التاريخية تنتهي في عام 2011. لا يمكنني تقديم معلومات عن الأحداث الأحدث. ولكنني سأكون سعيداً لمناقشة تاريخ مصر الغني حتى ذلك التاريخ."
             else:
@@ -232,7 +306,7 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
             else:
                 return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?"
         
-        # If it's Egyptian history, proceed with normal processing
+        # If it's genuine Egyptian history, proceed with normal processing
         elif topic_category == "egyptian_history":
             # Manage conversation history
             managed_history = manage_conversation_length(history)
@@ -249,9 +323,9 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
             # Format conversation for Gemini (exclude system messages and the current user message)
             gemini_history = format_conversation_for_gemini(managed_history)
             
-            # Initialize Gemini model
+            # Initialize Gemini model with latest version
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro",
+                model_name="gemini-2.5-pro",  # Latest Gemini model
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.7,
                     top_p=0.8,
@@ -306,6 +380,10 @@ def process_user_message(user_input: str):
                 topic, reason = classify_message_topic(user_input)
                 st.write(f"**Category:** {topic}")
                 st.write(f"**Reason:** {reason}")
+                
+                # Show warning for exploitation attempts
+                if topic in ["exploitation_attempt", "technical_request"]:
+                    st.warning("⚠️ **Exploitation Attempt Detected**")
             except Exception as e:
                 st.write(f"Could not analyze topic: {str(e)}")
     
@@ -378,9 +456,22 @@ def main():
         
         st.divider()
         
+        # Enhanced protection notice
+        st.warning("""
+        🛡️ **Protected Assistant**
+        
+        This chatbot is designed exclusively for Egyptian history education and will not:
+        - Provide code or technical assistance
+        - Help with assignments or homework
+        - Offer business or personal advice
+        - Answer unrelated questions
+        """)
+        
+        st.divider()
+        
         # API Status
         if st.session_state.gemini_configured:
-            st.success("✅ Gemini API Connected")
+            st.success("✅ Gemini 2.0 Flash Connected")
         else:
             st.error("❌ API Not Configured")
         
@@ -390,7 +481,7 @@ def main():
         st.session_state.show_classification = st.checkbox(
             "🔍 Show Topic Analysis", 
             value=st.session_state.show_classification,
-            help="See how messages are classified by the AI"
+            help="See how messages are classified and if exploitation attempts are detected"
         )
         
         st.divider()
