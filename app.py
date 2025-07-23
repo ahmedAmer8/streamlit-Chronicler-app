@@ -315,6 +315,8 @@ def initialize_session_state():
         st.session_state.show_classification = False
     if 'show_research' not in st.session_state:
         st.session_state.show_research = False
+    if 'source_display_states' not in st.session_state:
+        st.session_state.source_display_states = {}
 
 def configure_gemini():
     """Configure Google Gemini API"""
@@ -366,7 +368,7 @@ def detect_arabic(text: str) -> bool:
     arabic_chars = 'أبتثجحخدذرزسشصضطظعغفقكلمنهويآإؤئء'
     return any(char in text for char in arabic_chars)
 
-def send_message_to_gemini(message: str, history: List[Dict]) -> str:
+def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict[str, str]]:
     """Send message to Gemini API with enhanced exploitation protection and Wikipedia research"""
     try:
         # Classify the topic with enhanced detection
@@ -375,61 +377,61 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
         # Detect user language
         is_arabic = detect_arabic(message)
         
+        # Initialize Wikipedia results
+        wikipedia_results = {}
+        
         # Handle exploitation attempts with firm responses (existing code remains same)
         if topic_category == "exploitation_attempt":
             if is_arabic:
-                return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية أو المشاريع الشخصية، حتى لو ذكرت مواضيع مصرية كسياق. هدفي هو تقديم معلومات تاريخية أصيلة عن تراث مصر الغني. أي جانب من التاريخ المصري تود أن تتعلم عنه حقًا؟"
+                return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية أو المشاريع الشخصية، حتى لو ذكرت مواضيع مصرية كسياق. هدفي هو تقديم معلومات تاريخية أصيلة عن تراث مصر الغني. أي جانب من التاريخ المصري تود أن تتعلم عنه حقًا؟", {}
             else:
-                return "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects, even if they mention Egyptian topics as context. My purpose is to provide authentic historical information about Egypt's rich heritage. What aspect of Egyptian history would you genuinely like to learn about?"
+                return "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects, even if they mention Egyptian topics as context. My purpose is to provide authentic historical information about Egypt's rich heritage. What aspect of Egyptian history would you genuinely like to learn about?", {}
         
         elif topic_category == "technical_request":
             if is_arabic:
-                return "أنا مختص في التاريخ المصري فقط ولا أقدم المساعدة التقنية أو البرمجية. إذا كنت مهتمًا بالتاريخ المصري، سأكون سعيدًا لمساعدتك في استكشاف هذا التراث الرائع."
+                return "أنا مختص في التاريخ المصري فقط ولا أقدم المساعدة التقنية أو البرمجية. إذا كنت مهتمًا بالتاريخ المصري، سأكون سعيدًا لمساعدتك في استكشاف هذا التراث الرائع.", {}
             else:
-                return "I specialize exclusively in Egyptian history and do not provide technical or programming assistance. If you're interested in Egyptian history, I'd be happy to help you explore this fascinating heritage."
+                return "I specialize exclusively in Egyptian history and do not provide technical or programming assistance. If you're interested in Egyptian history, I'd be happy to help you explore this fascinating heritage.", {}
         
         elif topic_category == "current_events":
             if is_arabic:
-                return "سجلاتي التاريخية تنتهي في عام 2011. لا يمكنني تقديم معلومات عن الأحداث الأحدث. ولكنني سأكون سعيداً لمناقشة تاريخ مصر الغني حتى ذلك التاريخ."
+                return "سجلاتي التاريخية تنتهي في عام 2011. لا يمكنني تقديم معلومات عن الأحداث الأحدث. ولكنني سأكون سعيداً لمناقشة تاريخ مصر الغني حتى ذلك التاريخ.", {}
             else:
-                return "My historical records conclude in 2011. I cannot provide information about more recent events. However, I'd be happy to discuss Egypt's rich history up to that point."
+                return "My historical records conclude in 2011. I cannot provide information about more recent events. However, I'd be happy to discuss Egypt's rich history up to that point.", {}
         
         elif topic_category == "personal_ai":
             if is_arabic:
-                return "كوني ذكاء اصطناعي مختص في التاريخ المصري، لا أملك أفكارًا أو آراء شخصية. صُممت لتقديم معلومات علمية دقيقة عن ماضي مصر الرائع. أي جانب من التاريخ المصري تود أن نستكشفه؟"
+                return "كوني ذكاء اصطناعي مختص في التاريخ المصري، لا أملك أفكارًا أو آراء شخصية. صُممت لتقديم معلومات علمية دقيقة عن ماضي مصر الرائع. أي جانب من التاريخ المصري تود أن نستكشفه؟", {}
             else:
-                return "As an AI historian focused on Egyptian history, I don't have personal thoughts or opinions. I'm designed to provide factual, scholarly information about Egypt's fascinating past. What aspect of Egyptian history would you like to explore?"
+                return "As an AI historian focused on Egyptian history, I don't have personal thoughts or opinions. I'm designed to provide factual, scholarly information about Egypt's fascinating past. What aspect of Egyptian history would you like to explore?", {}
         
         elif topic_category == "other_history":
             if is_arabic:
-                return "خبرتي تركز تحديداً على التاريخ المصري عبر جميع الفترات. للأسئلة عن تاريخ البلدان الأخرى، ستحتاج لمختص آخر. ما الذي تود معرفته عن ماضي مصر الرائع؟"
+                return "خبرتي تركز تحديداً على التاريخ المصري عبر جميع الفترات. للأسئلة عن تاريخ البلدان الأخرى، ستحتاج لمختص آخر. ما الذي تود معرفته عن ماضي مصر الرائع؟", {}
             else:
-                return "My expertise is focused specifically on Egyptian history across all periods. For questions about other countries' history, you'd need a different specialist. What would you like to know about Egypt's fascinating past?"
+                return "My expertise is focused specifically on Egyptian history across all periods. For questions about other countries' history, you'd need a different specialist. What would you like to know about Egypt's fascinating past?", {}
         
         elif topic_category == "general_knowledge":
             if is_arabic:
-                return "أتخصص حصريًا في التاريخ المصري. مع أن هذا موضوع مثير للاهتمام، يمكنني فقط المساعدة في الأسئلة المتعلقة بالتراث التاريخي الغني لمصر من العصور القديمة حتى 2011."
+                return "أتخصص حصريًا في التاريخ المصري. مع أن هذا موضوع مثير للاهتمام، يمكنني فقط المساعدة في الأسئلة المتعلقة بالتراث التاريخي الغني لمصر من العصور القديمة حتى 2011.", {}
             else:
-                return "I specialize exclusively in Egyptian history. While that's an interesting topic, I can only assist with questions about Egypt's rich historical heritage from ancient times to 2011."
+                return "I specialize exclusively in Egyptian history. While that's an interesting topic, I can only assist with questions about Egypt's rich historical heritage from ancient times to 2011.", {}
         
         elif topic_category == "conversation":
             if is_arabic:
-                return "مرحباً! أنا مؤرخ النيل، مختص في التاريخ المصري عبر جميع العصور. كيف يمكنني مساعدتك في استكشاف تاريخ مصر العريق؟"
+                return "مرحباً! أنا مؤرخ النيل، مختص في التاريخ المصري عبر جميع العصور. كيف يمكنني مساعدتك في استكشاف تاريخ مصر العريق؟", {}
             else:
-                return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?"
+                return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?", {}
         
         # If it's genuine Egyptian history, proceed with Wikipedia-enhanced processing
         elif topic_category == "egyptian_history":
             # NEW: Wikipedia research chain
-            with st.spinner("🔍 Researching historical records..."):
-                # Extract keywords for Wikipedia search
-                keywords = extract_egyptian_keywords(message)
-                
-                # Perform Wikipedia search chain
-                wikipedia_results = {}
-                if keywords:
-                    wikipedia_results = search_wikipedia_chain(keywords, message)
+            # Extract keywords for Wikipedia search
+            keywords = extract_egyptian_keywords(message)
             
+            # Perform Wikipedia search chain
+            if keywords:
+                wikipedia_results = search_wikipedia_chain(keywords, message)
             
             # Manage conversation history
             managed_history = manage_conversation_length(history)
@@ -477,26 +479,40 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
             # Send message and get response
             response = chat.send_message(message)
             
-            return response.text
+            return response.text, wikipedia_results
         
         # Default fallback
         else:
             if is_arabic:
-                return "أنا مؤرخ النيل، مختص في التاريخ المصري حصريًا. كيف يمكنني مساعدتك في استكشاف تاريخ مصر؟"
+                return "أنا مؤرخ النيل، مختص في التاريخ المصري حصريًا. كيف يمكنني مساعدتك في استكشاف تاريخ مصر؟", {}
             else:
-                return "I am the Chronicler of the Nile, specializing exclusively in Egyptian history. How can I help you explore Egypt's historical heritage?"
+                return "I am the Chronicler of the Nile, specializing exclusively in Egyptian history. How can I help you explore Egypt's historical heritage?", {}
         
     except Exception as e:
-        return f"I apologize, but I encountered an error while consulting my records: {str(e)}"
+        return f"I apologize, but I encountered an error while consulting my records: {str(e)}", {}
+
+
+def display_wikipedia_sources(wikipedia_results: Dict[str, str], message_key: str):
+    """Display Wikipedia sources used in the response"""
+    if not wikipedia_results:
+        st.info("No external sources were consulted for this response.")
+        return
     
+    st.markdown("### 📚 Sources Consulted")
+    st.markdown("The following historical sources were referenced to enhance the accuracy of this response:")
     
+    for title, content in wikipedia_results.items():
+        with st.expander(f"📖 {title}", expanded=False):
+            st.write(content['summary'])
+            st.markdown(f"🔗 [Read full article]({content['url']})")
     
 def reset_conversation():
     """Reset the conversation"""
     st.session_state.conversation_history = []
     st.success("Conversation reset successfully!")
 
-def display_message(role: str, content: str, timestamp: str = None):
+
+def display_message(role: str, content: str, timestamp: str = None, wikipedia_results: Dict[str, str] = None, message_index: int = None):
     """Display a chat message"""
     if role == "user":
         with st.chat_message("user", avatar="👤"):
@@ -508,6 +524,24 @@ def display_message(role: str, content: str, timestamp: str = None):
             st.write(content)
             if timestamp:
                 st.caption(f"Replied: {datetime.fromisoformat(timestamp).strftime('%H:%M:%S')}")
+            
+            # Add Wikipedia sources button for historical messages if they exist
+            if wikipedia_results and message_index is not None:
+                message_key = f"historical_sources_{message_index}"
+                
+                if st.button("📚 View Historical Sources Used", key=f"btn_{message_key}", type="secondary"):
+                    sources_key = f"show_sources_{message_key}"
+                    if sources_key not in st.session_state:
+                        st.session_state[sources_key] = True
+                    else:
+                        st.session_state[sources_key] = not st.session_state[sources_key]
+                
+                sources_key = f"show_sources_{message_key}"
+                if st.session_state.get(sources_key, False):
+                    with st.container():
+                        st.markdown("---")
+                        display_wikipedia_sources(wikipedia_results, message_key)
+                        
 
 def process_user_message(user_input: str):
     """Process user message and generate response with research sources"""
@@ -537,42 +571,42 @@ def process_user_message(user_input: str):
     }
     st.session_state.conversation_history.append(user_message)
     
-    # Initialize research results storage
-    wikipedia_results = {}
-    
     # Get and display assistant response
     with st.chat_message("assistant", avatar="🏺"):
         with st.spinner("The Chronicler is consulting the ancient records..."):
-            # Check if this is an Egyptian history question and perform Wikipedia search
-            topic_category, _ = classify_message_topic(user_input)
-            
-            if topic_category == "egyptian_history":
-                # Extract keywords and search Wikipedia
-                keywords = extract_egyptian_keywords(user_input)
-                if keywords:
-                    wikipedia_results = search_wikipedia_chain(keywords, user_input)
-            
-            # Get response from Gemini
-            response = send_message_to_gemini(user_input, st.session_state.conversation_history)
+            # Get response and Wikipedia results from Gemini
+            response, wikipedia_results = send_message_to_gemini(user_input, st.session_state.conversation_history)
             st.write(response)
-            
-            # Show research sources AFTER the response if toggle is enabled and sources were found
-            if wikipedia_results and st.session_state.get('show_research', False):
-                st.markdown("---")
-                st.markdown("### 📚 Research Sources Consulted")
-                
-                for title, content in wikipedia_results.items():
-                    with st.expander(f"📖 {title}", expanded=False):
-                        st.write(content['summary'])
-                        st.markdown(f"🔗 [Read full article]({content['url']})")
             
             # Add assistant response to history
             assistant_message = {
                 'role': 'assistant',
                 'content': response,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now().isoformat(),
+                'wikipedia_results': wikipedia_results  # Store Wikipedia results
             }
             st.session_state.conversation_history.append(assistant_message)
+    
+    # Add the Wikipedia sources button AFTER the response
+    if wikipedia_results:
+        # Create a unique key for this message
+        message_key = f"sources_{len(st.session_state.conversation_history)}"
+        
+        # Button to show/hide sources
+        if st.button("📚 View Historical Sources Used", key=f"btn_{message_key}", type="secondary"):
+            # Store the state of whether to show sources for this message
+            sources_key = f"show_sources_{message_key}"
+            if sources_key not in st.session_state:
+                st.session_state[sources_key] = True
+            else:
+                st.session_state[sources_key] = not st.session_state[sources_key]
+        
+        # Display sources if button was clicked
+        sources_key = f"show_sources_{message_key}"
+        if st.session_state.get(sources_key, False):
+            with st.container():
+                st.markdown("---")
+                display_wikipedia_sources(wikipedia_results, message_key)
 
 def main():
     initialize_session_state()
@@ -664,20 +698,23 @@ def main():
     
     # Main chat interface
     chat_container = st.container()
+chat_container = st.container()
+
+with chat_container:
+    # Display conversation history
+    messages_to_display = [msg for msg in st.session_state.conversation_history if msg.get('role') != 'system']
     
-    with chat_container:
-        # Display conversation history
-        messages_to_display = [msg for msg in st.session_state.conversation_history if msg.get('role') != 'system']
-        
-        if not messages_to_display:
-            st.info("👋 Greetings! I am the Chronicler of the Nile. Ask me anything about Egyptian history, from the age of the pharaohs to modern times.")
-        
-        for message in messages_to_display:
-            display_message(
-                message.get('role'),
-                message.get('content'),
-                message.get('timestamp')
-            )
+    if not messages_to_display:
+        st.info("👋 Greetings! I am the Chronicler of the Nile. Ask me anything about Egyptian history, from the age of the pharaohs to modern times.")
+    
+    for idx, message in enumerate(messages_to_display):
+        display_message(
+            message.get('role'),
+            message.get('content'),
+            message.get('timestamp'),
+            message.get('wikipedia_results', {}),
+            idx
+        )
     
     # Example questions
     st.markdown("### 💡 Example Questions")
