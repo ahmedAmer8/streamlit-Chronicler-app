@@ -368,6 +368,7 @@ def detect_arabic(text: str) -> bool:
     arabic_chars = 'أبتثجحخدذرزسشصضطظعغفقكلمنهويآإؤئء'
     return any(char in text for char in arabic_chars)
 
+
 def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict[str, str]]:
     """Send message to Gemini API with enhanced exploitation protection and Wikipedia research"""
     try:
@@ -609,6 +610,7 @@ def process_user_message(user_input: str):
                 display_wikipedia_sources(wikipedia_results, message_key)
 
 def main():
+    # IMPORTANT: Initialize session state FIRST, before anything else
     initialize_session_state()
     
     # Configure Gemini API
@@ -698,23 +700,22 @@ def main():
     
     # Main chat interface
     chat_container = st.container()
-chat_container = st.container()
-
-with chat_container:
-    # Display conversation history
-    messages_to_display = [msg for msg in st.session_state.conversation_history if msg.get('role') != 'system']
     
-    if not messages_to_display:
-        st.info("👋 Greetings! I am the Chronicler of the Nile. Ask me anything about Egyptian history, from the age of the pharaohs to modern times.")
-    
-    for idx, message in enumerate(messages_to_display):
-        display_message(
-            message.get('role'),
-            message.get('content'),
-            message.get('timestamp'),
-            message.get('wikipedia_results', {}),
-            idx
-        )
+    with chat_container:
+        # Display conversation history
+        messages_to_display = [msg for msg in st.session_state.conversation_history if msg.get('role') != 'system']
+        
+        if not messages_to_display:
+            st.info("👋 Greetings! I am the Chronicler of the Nile. Ask me anything about Egyptian history, from the age of the pharaohs to modern times.")
+        
+        for idx, message in enumerate(messages_to_display):
+            display_message(
+                message.get('role'),
+                message.get('content'),
+                message.get('timestamp'),
+                message.get('wikipedia_results', {}),
+                idx
+            )
     
     # Example questions
     st.markdown("### 💡 Example Questions")
