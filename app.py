@@ -4,6 +4,9 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 import re
 import os
+import wikipedia
+import requests
+from urllib.parse import quote
 
 # Page configuration
 st.set_page_config(
@@ -91,7 +94,7 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
     """Use LLM to classify the topic of the user's message"""
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-1.5-flash",
+            model_name="gemini-2.5-pro",
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
                 max_output_tokens=100,
