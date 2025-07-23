@@ -633,7 +633,7 @@ def main():
         st.divider()
         
         if st.session_state.gemini_configured:
-            st.success("✅ Gemini 2.0 Flash Connected")
+            st.success("✅ Gemini 2.5 Pro Connected")
         else:
             st.error("❌ API Not Configured")
         
