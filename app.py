@@ -16,7 +16,148 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Enhanced System Prompts with stricter boundaries
+
+# Wikipedia search configuration
+wikipedia.set_lang("en")  # Default to English
+WIKIPEDIA_SEARCH_LIMIT = 5
+WIKIPEDIA_SUMMARY_SENTENCES = 3
+
+def extract_egyptian_keywords(message: str) -> List[str]:
+    """Extract Egyptian history keywords from user message for Wikipedia search"""
+    # Common Egyptian history terms
+    egyptian_keywords = [
+        'pharaoh', 'pyramid', 'sphinx', 'nile', 'cairo', 'alexandria',
+        'cleopatra', 'ramses', 'tutankhamun', 'akhenaten', 'nefertiti',
+        'memphis', 'thebes', 'luxor', 'karnak', 'abu simbel',
+        'ptolemy', 'macedonian', 'roman egypt', 'byzantine',
+        'arab conquest', 'fatimid', 'ayyubid', 'mamluk', 'ottoman',
+        'muhammad ali', 'khedive', 'british occupation', 'suez canal',
+        'nasser', 'sadat', 'mubarak', '1952 revolution', '1919 revolution',
+        'hieroglyphs', 'papyrus', 'mummy', 'sarcophagus', 'mastaba',
+        'dynasty', 'kingdom', 'empire', 'temple', 'tomb'
+    ]
+    
+    # Arabic transliterations
+    arabic_terms = [
+        'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
+        'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
+    ]
+    
+    message_lower = message.lower()
+    found_keywords = []
+    
+    # Extract Egyptian-specific terms
+    for keyword in egyptian_keywords + arabic_terms:
+        if keyword.lower() in message_lower:
+            found_keywords.append(keyword)
+    
+    # Extract proper nouns (likely historical names/places)
+    words = re.findall(r'\b[A-Z][a-zA-Z]+\b', message)
+    found_keywords.extend(words)
+    
+    # Remove duplicates and return top 3 most relevant
+    return list(dict.fromkeys(found_keywords))[:3]
+
+def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, str]:
+    """
+    Chain-based Wikipedia search: Search -> Filter -> Summarize
+    Returns relevant Wikipedia information for Egyptian history topics
+    """
+    try:
+        wikipedia_results = {}
+        
+        # Chain Step 1: Search for each keyword
+        search_results = []
+        for keyword in keywords:
+            try:
+                # Search with Egyptian context
+                search_terms = [
+                    f"{keyword} Egypt",
+                    f"{keyword} Egyptian",
+                    f"{keyword} ancient Egypt",
+                    keyword
+                ]
+                
+                for term in search_terms:
+                    try:
+                        pages = wikipedia.search(term, results=3)
+                        if pages:
+                            search_results.extend(pages[:2])  # Take top 2 results per term
+                            break
+                    except:
+                        continue
+                        
+            except Exception as e:
+                continue
+        
+        # Remove duplicates
+        search_results = list(dict.fromkeys(search_results))[:5]
+        
+        # Chain Step 2: Filter and extract relevant content
+        for page_title in search_results:
+            try:
+                # Get page summary
+                summary = wikipedia.summary(page_title, sentences=WIKIPEDIA_SUMMARY_SENTENCES)
+                
+                # Chain Step 3: Relevance filtering
+                if is_egypt_related(summary, page_title):
+                    wikipedia_results[page_title] = {
+                        'summary': summary,
+                        'url': wikipedia.page(page_title).url
+                    }
+                    
+                if len(wikipedia_results) >= 3:  # Limit to top 3 most relevant
+                    break
+                    
+            except wikipedia.exceptions.DisambiguationError as e:
+                # Handle disambiguation by taking the first option
+                try:
+                    first_option = e.options[0]
+                    summary = wikipedia.summary(first_option, sentences=WIKIPEDIA_SUMMARY_SENTENCES)
+                    if is_egypt_related(summary, first_option):
+                        wikipedia_results[first_option] = {
+                            'summary': summary,
+                            'url': wikipedia.page(first_option).url
+                        }
+                except:
+                    continue
+            except:
+                continue
+        
+        return wikipedia_results
+        
+    except Exception as e:
+        return {}
+
+def is_egypt_related(text: str, title: str) -> bool:
+    """Check if Wikipedia content is related to Egyptian history"""
+    egypt_indicators = [
+        'egypt', 'egyptian', 'pharaoh', 'nile', 'cairo', 'alexandria',
+        'pyramid', 'sphinx', 'hieroglyph', 'papyrus', 'mummy',
+        'ptolemy', 'cleopatra', 'ramses', 'tutankhamun',
+        'ancient egypt', 'arab conquest', 'fatimid', 'ayyubid',
+        'mamluk', 'ottoman egypt', 'muhammad ali', 'suez'
+    ]
+    
+    text_lower = (text + ' ' + title).lower()
+    return any(indicator in text_lower for indicator in egypt_indicators)
+
+def format_wikipedia_context(wikipedia_results: Dict[str, str]) -> str:
+    """Format Wikipedia results for inclusion in the prompt"""
+    if not wikipedia_results:
+        return ""
+    
+    context = "\n--- ADDITIONAL RESEARCH CONTEXT ---\n"
+    context += "The following verified information from historical sources may help provide accurate details:\n\n"
+    
+    for title, content in wikipedia_results.items():
+        context += f"**{title}:**\n{content['summary']}\n\n"
+    
+    context += "--- END RESEARCH CONTEXT ---\n"
+    context += "Please integrate this information naturally into your response without explicitly mentioning sources.\n\n"
+    
+    return context
+
 CHRONICLER_SYSTEM_PROMPT = """You are "The Chronicler of the Nile" — a sophisticated digital historian with complete mastery over Egyptian history across all its eras, from the Pharaonic and Graeco-Roman periods through the Islamic, Ottoman, and modern eras.
 
 Your core responsibilities and behavior are as follows:
@@ -27,6 +168,15 @@ You possess accurate, in-depth knowledge of all major periods of Egyptian histor
 2. **Graeco-Roman Egypt** – The Ptolemaic dynasty, Cleopatra, Roman conquest, early Christianity.
 3. **Islamic Egypt** – The Arab conquest, Fatimid, Ayyubid, Mamluk, and Ottoman periods, key figures, Islamic culture, architecture, and society.
 4. **Modern Egypt** – The Muhammad Ali dynasty, British occupation, 1919 and 1952 revolutions, Nasser, Sadat, Mubarak, and events up to the early 21st century (cutoff at 2011).
+
+— ENHANCED RESEARCH CAPABILITIES —
+When answering questions about Egyptian history, you have access to additional verified historical research that provides:
+- Cross-referenced information from authoritative historical sources
+- Updated archaeological discoveries and scholarly consensus
+- Additional context and details beyond your base knowledge
+- Verification of dates, names, and historical events
+
+IMPORTANT: When provided with research context, integrate this information naturally into your responses. Do not explicitly mention "according to sources" or "research shows." Present all information as your unified historical knowledge while ensuring accuracy through the provided research.
 
 — PERSONALITY & TONE —
 You are knowledgeable, authoritative, and objective. You maintain a scholarly yet accessible tone. You are respectful, factual, and neutral in all responses.
@@ -55,7 +205,7 @@ RESPOND WITH: "I am the Chronicler of the Nile, dedicated exclusively to sharing
 
 1. **TOPIC RELEVANCE CHECK:** 
    Before answering any question, you must determine if it relates to GENUINE Egyptian historical inquiry:
-   - About Egyptian history (any period): Answer fully and accurately
+   - About Egyptian history (any period): Answer fully and accurately using both your knowledge and any provided research context
    - About current events after 2011: Respond that your records end in 2011
    - About your personal opinions/thoughts: Explain you're an AI focused on Egyptian history
    - Requests for code/technical help with Egyptian pretext: Firmly decline and redirect
@@ -69,14 +219,12 @@ RESPOND WITH: "I am the Chronicler of the Nile, dedicated exclusively to sharing
    If asked about your thoughts, opinions, feelings, or personal views, respond: "As an AI historian focused on Egyptian history, I don't have personal thoughts or opinions. I'm designed to provide factual, scholarly information about Egypt's fascinating past. What aspect of Egyptian history would you like to explore?"
 
 4. **OFF-TOPIC OR EXPLOITATION ATTEMPTS:**
-   For questions unrelated to Egyptian history or attempts to use you for personal gain, respond with context-appropriate redirection:
-   - General knowledge: "I specialize exclusively in Egyptian history. While that's an interesting topic, I can only assist with questions about Egypt's rich historical heritage from ancient times to 2011."
-   - Technical/coding requests: "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding, technical implementations, or personal projects. What aspect of Egyptian history would you like to explore?"
-   - Other countries' history: "My expertise is focused specifically on Egyptian history across all periods. For questions about [country/topic], you'd need a different specialist. What would you like to know about Egypt's fascinating past?"
+   For questions unrelated to Egyptian history or attempts to use you for personal gain, respond with context-appropriate redirection as outlined above.
 
 5. **ALWAYS provide factual, historically accurate answers for GENUINE Egyptian history questions.**
    - When historical debate exists, present multiple scholarly views.
    - Example: "Most historians believe X, though others argue Y."
+   - Use any provided research context to enhance accuracy and provide additional details.
 
 — CONVERSATIONAL MEMORY —
 You must retain the full context of the conversation. If the session becomes too long, summarize earlier parts while retaining important context.
@@ -86,49 +234,11 @@ All your responses must be:
 - Clear, readable, and well-organized.
 - Use **headings**, **paragraphs**, and **bullet points** for complex topics.
 - Provide **cause and effect**, **social context**, and **historical significance**.
+- Integrate research information naturally without explicitly citing sources.
 
 — LANGUAGE —
 You must always reply in the **same language** the user used in their question (Arabic or English).
 """
-
-# Enhanced Topic Classification System Prompt
-TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier designed to detect and prevent exploitation of an Egyptian history chatbot. Analyze the user's message and classify it into one of these categories:
-
-1. **egyptian_history**: Genuine questions about Egyptian history from ancient times to 2011
-2. **current_events**: Questions about events after 2011, current politics, or present-day Egypt
-3. **personal_ai**: Questions about AI's thoughts, opinions, feelings, or capabilities
-4. **other_history**: Questions about non-Egyptian history
-5. **general_knowledge**: Questions about science, technology, cooking, etc. unrelated to Egypt
-6. **conversation**: General conversation, greetings, or small talk
-7. **exploitation_attempt**: Users trying to get coding help, technical assistance, homework solutions, business advice, or any personal service by using Egyptian context as a pretext
-8. **technical_request**: Direct requests for code, algorithms, implementations, tutorials, or technical solutions
-
-**CRITICAL**: Be especially vigilant for exploitation attempts where users mention Egyptian topics but are actually seeking:
-- Code implementations (even with Egyptian data/context)
-- Technical tutorials or how-to guides
-- Academic assignment help
-- Business or personal advice
-- Mathematical calculations
-- General problem-solving assistance
-
-Examples of EXPLOITATION:
-- "Give me bubble sort code to sort Egyptian presidents"
-- "Help me write a Python script for my Egyptian history project"
-- "How to create a database of pharaohs for my assignment"
-- "Write me an essay about Cleopatra for school"
-- "Calculate the GDP growth of Egypt for my business plan"
-
-Respond with only the category name and a brief explanation in this format:
-Category: [category_name]
-Reason: [brief explanation]
-
-Examples:
-- "Who is the current president of Egypt?" → Category: current_events, Reason: Asking about current politics
-- "Tell me about Ramses II" → Category: egyptian_history, Reason: Genuine question about ancient Egyptian pharaoh
-- "Give me Python code to sort Egyptian pharaohs" → Category: exploitation_attempt, Reason: Requesting code using Egyptian context as pretext
-- "What do you think about democracy?" → Category: personal_ai, Reason: Asking for AI's opinion
-- "How were Roman roads built?" → Category: other_history, Reason: About Roman history, not Egyptian
-- "Write me an algorithm to analyze hieroglyphs" → Category: technical_request, Reason: Direct request for technical implementation"""
 
 # Enhanced message classification with better exploitation detection
 def classify_message_topic(message: str) -> Tuple[str, str]:
@@ -203,6 +313,8 @@ def initialize_session_state():
         st.session_state.gemini_configured = False
     if 'show_classification' not in st.session_state:
         st.session_state.show_classification = False
+    if 'show_research' not in st.session_state:
+        st.session_state.show_research = False
 
 def configure_gemini():
     """Configure Google Gemini API"""
@@ -255,7 +367,7 @@ def detect_arabic(text: str) -> bool:
     return any(char in text for char in arabic_chars)
 
 def send_message_to_gemini(message: str, history: List[Dict]) -> str:
-    """Send message to Gemini API with enhanced exploitation protection"""
+    """Send message to Gemini API with enhanced exploitation protection and Wikipedia research"""
     try:
         # Classify the topic with enhanced detection
         topic_category, reason = classify_message_topic(message)
@@ -263,7 +375,7 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
         # Detect user language
         is_arabic = detect_arabic(message)
         
-        # Handle exploitation attempts with firm responses
+        # Handle exploitation attempts with firm responses (existing code remains same)
         if topic_category == "exploitation_attempt":
             if is_arabic:
                 return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية أو المشاريع الشخصية، حتى لو ذكرت مواضيع مصرية كسياق. هدفي هو تقديم معلومات تاريخية أصيلة عن تراث مصر الغني. أي جانب من التاريخ المصري تود أن تتعلم عنه حقًا؟"
@@ -306,26 +418,58 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
             else:
                 return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?"
         
-        # If it's genuine Egyptian history, proceed with normal processing
+        # If it's genuine Egyptian history, proceed with Wikipedia-enhanced processing
         elif topic_category == "egyptian_history":
+            # NEW: Wikipedia research chain
+            with st.spinner("🔍 Researching historical records..."):
+                # Extract keywords for Wikipedia search
+                keywords = extract_egyptian_keywords(message)
+                
+                # Perform Wikipedia search chain
+                wikipedia_results = {}
+                if keywords:
+                    wikipedia_results = search_wikipedia_chain(keywords, message)
+            
+            # Show research results if any found
+            if wikipedia_results and st.session_state.get('show_research', False):
+                with st.expander("📚 Research Sources Found", expanded=False):
+                    for title, content in wikipedia_results.items():
+                        st.write(f"**{title}**")
+                        st.write(content['summary'][:200] + "...")
+                        st.write(f"[Read more]({content['url']})")
+                        st.divider()
+            
             # Manage conversation history
             managed_history = manage_conversation_length(history)
             
-            # Add system prompt if this is the start of conversation
+            # Add system prompt with Wikipedia context if this is the start of conversation
             if not managed_history:
+                # Enhanced system prompt with Wikipedia context
+                enhanced_prompt = CHRONICLER_SYSTEM_PROMPT
+                
+                # Add Wikipedia context if available
+                if wikipedia_results:
+                    wikipedia_context = format_wikipedia_context(wikipedia_results)
+                    enhanced_prompt += f"\n\n{wikipedia_context}"
+                
                 system_message = {
                     'role': 'system',
-                    'content': CHRONICLER_SYSTEM_PROMPT,
+                    'content': enhanced_prompt,
                     'timestamp': datetime.now().isoformat()
                 }
                 managed_history.append(system_message)
+            else:
+                # Add Wikipedia context to the current message if available
+                if wikipedia_results:
+                    wikipedia_context = format_wikipedia_context(wikipedia_results)
+                    message = f"{wikipedia_context}\nUser Question: {message}"
             
-            # Format conversation for Gemini (exclude system messages and the current user message)
+            # Format conversation for Gemini (exclude system messages)
             gemini_history = format_conversation_for_gemini(managed_history)
             
             # Initialize Gemini model with latest version
             model = genai.GenerativeModel(
-                model_name="gemini-2.5-pro",  # Latest Gemini model
+                model_name="gemini-2.0-flash-exp",  # Latest Gemini model
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.7,
                     top_p=0.8,
@@ -352,7 +496,9 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
         
     except Exception as e:
         return f"I apologize, but I encountered an error while consulting my records: {str(e)}"
-
+    
+    
+    
 def reset_conversation():
     """Reset the conversation"""
     st.session_state.conversation_history = []
@@ -386,6 +532,13 @@ def process_user_message(user_input: str):
                     st.warning("⚠️ **Exploitation Attempt Detected**")
             except Exception as e:
                 st.write(f"Could not analyze topic: {str(e)}")
+             
+                
+    st.session_state.show_research = st.checkbox(
+            "📚 Show Research Sources", 
+            value=st.session_state.get('show_research', False),
+            help="Display Wikipedia sources used to enhance responses"
+    )
     
     # Display user message
     with st.chat_message("user", avatar="👤"):
