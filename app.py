@@ -430,14 +430,6 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> str:
                 if keywords:
                     wikipedia_results = search_wikipedia_chain(keywords, message)
             
-            # Show research results if any found
-            if wikipedia_results and st.session_state.get('show_research', False):
-                with st.expander("📚 Research Sources Found", expanded=False):
-                    for title, content in wikipedia_results.items():
-                        st.write(f"**{title}**")
-                        st.write(content['summary'][:200] + "...")
-                        st.write(f"[Read more]({content['url']})")
-                        st.divider()
             
             # Manage conversation history
             managed_history = manage_conversation_length(history)
@@ -518,7 +510,7 @@ def display_message(role: str, content: str, timestamp: str = None):
                 st.caption(f"Replied: {datetime.fromisoformat(timestamp).strftime('%H:%M:%S')}")
 
 def process_user_message(user_input: str):
-    """Process user message and generate response"""
+    """Process user message and generate response with research sources"""
     # Show topic classification if enabled
     if st.session_state.show_classification:
         with st.expander("🔍 Topic Analysis", expanded=False):
@@ -532,13 +524,6 @@ def process_user_message(user_input: str):
                     st.warning("⚠️ **Exploitation Attempt Detected**")
             except Exception as e:
                 st.write(f"Could not analyze topic: {str(e)}")
-             
-                
-    st.session_state.show_research = st.checkbox(
-            "📚 Show Research Sources", 
-            value=st.session_state.get('show_research', False),
-            help="Display Wikipedia sources used to enhance responses"
-    )
     
     # Display user message
     with st.chat_message("user", avatar="👤"):
@@ -552,11 +537,34 @@ def process_user_message(user_input: str):
     }
     st.session_state.conversation_history.append(user_message)
     
+    # Initialize research results storage
+    wikipedia_results = {}
+    
     # Get and display assistant response
     with st.chat_message("assistant", avatar="🏺"):
         with st.spinner("The Chronicler is consulting the ancient records..."):
+            # Check if this is an Egyptian history question and perform Wikipedia search
+            topic_category, _ = classify_message_topic(user_input)
+            
+            if topic_category == "egyptian_history":
+                # Extract keywords and search Wikipedia
+                keywords = extract_egyptian_keywords(user_input)
+                if keywords:
+                    wikipedia_results = search_wikipedia_chain(keywords, user_input)
+            
+            # Get response from Gemini
             response = send_message_to_gemini(user_input, st.session_state.conversation_history)
             st.write(response)
+            
+            # Show research sources AFTER the response if toggle is enabled and sources were found
+            if wikipedia_results and st.session_state.get('show_research', False):
+                st.markdown("---")
+                st.markdown("### 📚 Research Sources Consulted")
+                
+                for title, content in wikipedia_results.items():
+                    with st.expander(f"📖 {title}", expanded=False):
+                        st.write(content['summary'])
+                        st.markdown(f"🔗 [Read full article]({content['url']})")
             
             # Add assistant response to history
             assistant_message = {
