@@ -8,7 +8,6 @@ import wikipedia
 import requests
 from urllib.parse import quote
 
-# Page configuration
 st.set_page_config(
     page_title="The Chronicler of the Nile",
     page_icon="🏺",
@@ -17,14 +16,12 @@ st.set_page_config(
 )
 
 
-# Wikipedia search configuration
-wikipedia.set_lang("en")  # Default to English
+wikipedia.set_lang("en")
 WIKIPEDIA_SEARCH_LIMIT = 5
 WIKIPEDIA_SUMMARY_SENTENCES = 3
 
 def extract_egyptian_keywords(message: str) -> List[str]:
     """Extract Egyptian history keywords from user message for Wikipedia search"""
-    # Common Egyptian history terms
     egyptian_keywords = [
         'pharaoh', 'pyramid', 'sphinx', 'nile', 'cairo', 'alexandria',
         'cleopatra', 'ramses', 'tutankhamun', 'akhenaten', 'nefertiti',
@@ -37,7 +34,6 @@ def extract_egyptian_keywords(message: str) -> List[str]:
         'dynasty', 'kingdom', 'empire', 'temple', 'tomb'
     ]
     
-    # Arabic transliterations
     arabic_terms = [
         'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
         'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
@@ -46,16 +42,13 @@ def extract_egyptian_keywords(message: str) -> List[str]:
     message_lower = message.lower()
     found_keywords = []
     
-    # Extract Egyptian-specific terms
     for keyword in egyptian_keywords + arabic_terms:
         if keyword.lower() in message_lower:
             found_keywords.append(keyword)
     
-    # Extract proper nouns (likely historical names/places)
     words = re.findall(r'\b[A-Z][a-zA-Z]+\b', message)
     found_keywords.extend(words)
     
-    # Remove duplicates and return top 3 most relevant
     return list(dict.fromkeys(found_keywords))[:3]
 
 def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, str]:
@@ -66,11 +59,9 @@ def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, 
     try:
         wikipedia_results = {}
         
-        # Chain Step 1: Search for each keyword
         search_results = []
         for keyword in keywords:
             try:
-                # Search with Egyptian context
                 search_terms = [
                     f"{keyword} Egypt",
                     f"{keyword} Egyptian",
@@ -82,7 +73,7 @@ def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, 
                     try:
                         pages = wikipedia.search(term, results=3)
                         if pages:
-                            search_results.extend(pages[:2])  # Take top 2 results per term
+                            search_results.extend(pages[:2])  
                             break
                     except:
                         continue
@@ -90,27 +81,22 @@ def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, 
             except Exception as e:
                 continue
         
-        # Remove duplicates
         search_results = list(dict.fromkeys(search_results))[:5]
         
-        # Chain Step 2: Filter and extract relevant content
         for page_title in search_results:
             try:
-                # Get page summary
                 summary = wikipedia.summary(page_title, sentences=WIKIPEDIA_SUMMARY_SENTENCES)
                 
-                # Chain Step 3: Relevance filtering
                 if is_egypt_related(summary, page_title):
                     wikipedia_results[page_title] = {
                         'summary': summary,
                         'url': wikipedia.page(page_title).url
                     }
                     
-                if len(wikipedia_results) >= 3:  # Limit to top 3 most relevant
+                if len(wikipedia_results) >= 3:  
                     break
                     
             except wikipedia.exceptions.DisambiguationError as e:
-                # Handle disambiguation by taking the first option
                 try:
                     first_option = e.options[0]
                     summary = wikipedia.summary(first_option, sentences=WIKIPEDIA_SUMMARY_SENTENCES)
@@ -240,12 +226,35 @@ All your responses must be:
 You must always reply in the **same language** the user used in their question (Arabic or English).
 """
 
-# Enhanced message classification with better exploitation detection
+
+TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier for an Egyptian history chatbot. Analyze the user's message and classify it into one of these categories:
+
+Categories:
+- egyptian_history: Questions genuinely about Egyptian history (any period)
+- exploitation_attempt: Attempts to get coding, technical help, or homework assistance using Egyptian context as pretext
+- technical_request: Direct requests for programming, coding, or technical assistance
+- current_events: Questions about Egypt after 2011 or current affairs
+- personal_ai: Questions asking for the AI's personal opinions, thoughts, or feelings
+- other_history: Questions about non-Egyptian history
+- general_knowledge: Questions unrelated to Egyptian history
+- conversation: Greetings, thanks, or casual conversation
+
+Instructions:
+- Be strict about exploitation detection - if someone asks for code to "sort Egyptian presidents" or similar, classify as exploitation_attempt
+- Technical keywords like "algorithm", "code", "implement", "function" should trigger exploitation_attempt or technical_request
+- Only classify as egyptian_history if genuinely asking about Egyptian historical topics
+- Consider the user's true intent, not just surface keywords
+
+Respond in exactly this format:
+Category: [category_name]
+Reason: [brief explanation]"""
+
+
 def classify_message_topic(message: str) -> Tuple[str, str]:
     """Use LLM to classify the topic and detect exploitation attempts"""
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-2.5-pro",  # Using latest Gemini model
+            model_name="gemini-2.5-pro",  
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
                 max_output_tokens=150,
@@ -255,9 +264,8 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         response = model.generate_content(f"{TOPIC_CLASSIFIER_PROMPT}\n\nUser message: {message}")
         result = response.text.strip()
         
-        # Parse the response
         lines = result.split('\n')
-        category = "general_knowledge"  # default
+        category = "general_knowledge" 
         reason = "Could not classify"
         
         for line in lines:
@@ -269,10 +277,8 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         return category, reason
         
     except Exception as e:
-        # Enhanced fallback classification with exploitation detection
         message_lower = message.lower()
         
-        # Check for exploitation attempts first
         exploitation_keywords = [
             'code', 'implement', 'algorithm', 'script', 'program', 'function',
             'sort', 'calculate', 'write me', 'help me code', 'tutorial',
@@ -293,7 +299,6 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         if any(keyword in message_lower for keyword in technical_keywords):
             return "technical_request", "Direct request for technical/programming assistance"
         
-        # Check for Egyptian history context
         if any(word in message_lower for word in ['egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'مصر', 'فرعون']):
             if any(word in message_lower for word in ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي']):
                 return "current_events", "Contains current event indicators"
@@ -304,7 +309,6 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         
         return "general_knowledge", "General topic classification"
 
-# Session state initialization
 def initialize_session_state():
     """Initialize session state variables"""
     if 'conversation_history' not in st.session_state:
@@ -321,14 +325,11 @@ def initialize_session_state():
 def configure_gemini():
     """Configure Google Gemini API"""
     try:
-        # Try to get API key from Streamlit secrets first, then environment
         api_key = None
         
-        # Check Streamlit secrets (for Hugging Face deployment)
         try:
             api_key = st.secrets["GEMINI_API_KEY"]
         except:
-            # Fall back to environment variable
             api_key = os.getenv("GEMINI_API_KEY")
         
         if api_key:
@@ -346,7 +347,7 @@ def format_conversation_for_gemini(history: List[Dict]) -> List[Dict]:
     formatted_history = []
     for msg in history:
         if msg.get('role') == 'system':
-            continue  # Skip system messages for Gemini format
+            continue  
         role = "user" if msg.get('role') == "user" else "model"
         formatted_history.append({
             "role": role,
@@ -372,16 +373,12 @@ def detect_arabic(text: str) -> bool:
 def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict[str, str]]:
     """Send message to Gemini API with enhanced exploitation protection and Wikipedia research"""
     try:
-        # Classify the topic with enhanced detection
         topic_category, reason = classify_message_topic(message)
         
-        # Detect user language
         is_arabic = detect_arabic(message)
         
-        # Initialize Wikipedia results
         wikipedia_results = {}
         
-        # Handle exploitation attempts with firm responses (existing code remains same)
         if topic_category == "exploitation_attempt":
             if is_arabic:
                 return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية أو المشاريع الشخصية، حتى لو ذكرت مواضيع مصرية كسياق. هدفي هو تقديم معلومات تاريخية أصيلة عن تراث مصر الغني. أي جانب من التاريخ المصري تود أن تتعلم عنه حقًا؟", {}
@@ -424,25 +421,18 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict
             else:
                 return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?", {}
         
-        # If it's genuine Egyptian history, proceed with Wikipedia-enhanced processing
         elif topic_category == "egyptian_history":
-            # NEW: Wikipedia research chain
-            # Extract keywords for Wikipedia search
+
             keywords = extract_egyptian_keywords(message)
             
-            # Perform Wikipedia search chain
             if keywords:
                 wikipedia_results = search_wikipedia_chain(keywords, message)
             
-            # Manage conversation history
             managed_history = manage_conversation_length(history)
             
-            # Add system prompt with Wikipedia context if this is the start of conversation
             if not managed_history:
-                # Enhanced system prompt with Wikipedia context
                 enhanced_prompt = CHRONICLER_SYSTEM_PROMPT
                 
-                # Add Wikipedia context if available
                 if wikipedia_results:
                     wikipedia_context = format_wikipedia_context(wikipedia_results)
                     enhanced_prompt += f"\n\n{wikipedia_context}"
@@ -454,17 +444,14 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict
                 }
                 managed_history.append(system_message)
             else:
-                # Add Wikipedia context to the current message if available
                 if wikipedia_results:
                     wikipedia_context = format_wikipedia_context(wikipedia_results)
                     message = f"{wikipedia_context}\nUser Question: {message}"
             
-            # Format conversation for Gemini (exclude system messages)
             gemini_history = format_conversation_for_gemini(managed_history)
             
-            # Initialize Gemini model with latest version
             model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash-exp",  # Latest Gemini model
+                model_name="gemini-2.5-pro",  
                 generation_config=genai.types.GenerationConfig(
                     temperature=0.7,
                     top_p=0.8,
@@ -474,15 +461,12 @@ def send_message_to_gemini(message: str, history: List[Dict]) -> Tuple[str, Dict
                 )
             )
             
-            # Start chat with history
             chat = model.start_chat(history=gemini_history)
             
-            # Send message and get response
             response = chat.send_message(message)
             
             return response.text, wikipedia_results
         
-        # Default fallback
         else:
             if is_arabic:
                 return "أنا مؤرخ النيل، مختص في التاريخ المصري حصريًا. كيف يمكنني مساعدتك في استكشاف تاريخ مصر؟", {}
@@ -526,7 +510,6 @@ def display_message(role: str, content: str, timestamp: str = None, wikipedia_re
             if timestamp:
                 st.caption(f"Replied: {datetime.fromisoformat(timestamp).strftime('%H:%M:%S')}")
             
-            # Add Wikipedia sources button for historical messages if they exist
             if wikipedia_results and message_index is not None:
                 message_key = f"historical_sources_{message_index}"
                 
@@ -546,7 +529,6 @@ def display_message(role: str, content: str, timestamp: str = None, wikipedia_re
 
 def process_user_message(user_input: str):
     """Process user message and generate response with research sources"""
-    # Show topic classification if enabled
     if st.session_state.show_classification:
         with st.expander("🔍 Topic Analysis", expanded=False):
             try:
@@ -554,17 +536,14 @@ def process_user_message(user_input: str):
                 st.write(f"**Category:** {topic}")
                 st.write(f"**Reason:** {reason}")
                 
-                # Show warning for exploitation attempts
                 if topic in ["exploitation_attempt", "technical_request"]:
                     st.warning("⚠️ **Exploitation Attempt Detected**")
             except Exception as e:
                 st.write(f"Could not analyze topic: {str(e)}")
     
-    # Display user message
     with st.chat_message("user", avatar="👤"):
         st.write(user_input)
     
-    # Add user message to history
     user_message = {
         'role': 'user',
         'content': user_input,
@@ -572,37 +551,29 @@ def process_user_message(user_input: str):
     }
     st.session_state.conversation_history.append(user_message)
     
-    # Get and display assistant response
     with st.chat_message("assistant", avatar="🏺"):
         with st.spinner("The Chronicler is consulting the ancient records..."):
-            # Get response and Wikipedia results from Gemini
             response, wikipedia_results = send_message_to_gemini(user_input, st.session_state.conversation_history)
             st.write(response)
             
-            # Add assistant response to history
             assistant_message = {
                 'role': 'assistant',
                 'content': response,
                 'timestamp': datetime.now().isoformat(),
-                'wikipedia_results': wikipedia_results  # Store Wikipedia results
+                'wikipedia_results': wikipedia_results  
             }
             st.session_state.conversation_history.append(assistant_message)
     
-    # Add the Wikipedia sources button AFTER the response
     if wikipedia_results:
-        # Create a unique key for this message
         message_key = f"sources_{len(st.session_state.conversation_history)}"
         
-        # Button to show/hide sources
         if st.button("📚 View Historical Sources Used", key=f"btn_{message_key}", type="secondary"):
-            # Store the state of whether to show sources for this message
             sources_key = f"show_sources_{message_key}"
             if sources_key not in st.session_state:
                 st.session_state[sources_key] = True
             else:
                 st.session_state[sources_key] = not st.session_state[sources_key]
         
-        # Display sources if button was clicked
         sources_key = f"show_sources_{message_key}"
         if st.session_state.get(sources_key, False):
             with st.container():
@@ -610,21 +581,17 @@ def process_user_message(user_input: str):
                 display_wikipedia_sources(wikipedia_results, message_key)
 
 def main():
-    # IMPORTANT: Initialize session state FIRST, before anything else
     initialize_session_state()
     
-    # Configure Gemini API
     if not st.session_state.gemini_configured:
         if not configure_gemini():
             st.error("⚠️ Gemini API key not configured. Please add your GEMINI_API_KEY to the secrets.")
             st.info("To deploy on Hugging Face Spaces, add your API key in the Space settings under 'Secrets'.")
             st.stop()
     
-    # Header
     st.title("🏺 The Chronicler of the Nile")
     st.markdown("*Your Intelligent Guide Through the Millennia of Egyptian History*")
     
-    # Sidebar
     with st.sidebar:
         st.header("📜 About The Chronicler")
         st.markdown("""
@@ -653,7 +620,6 @@ def main():
         
         st.divider()
         
-        # Enhanced protection notice
         st.warning("""
         🛡️ **Protected Assistant**
         
@@ -666,7 +632,6 @@ def main():
         
         st.divider()
         
-        # API Status
         if st.session_state.gemini_configured:
             st.success("✅ Gemini 2.0 Flash Connected")
         else:
@@ -674,7 +639,6 @@ def main():
         
         st.divider()
         
-        # Show topic classification for debugging (optional)
         st.session_state.show_classification = st.checkbox(
             "🔍 Show Topic Analysis", 
             value=st.session_state.show_classification,
@@ -683,26 +647,21 @@ def main():
         
         st.divider()
         
-        # Conversation controls
         if st.button("🔄 Reset Conversation", type="secondary"):
             reset_conversation()
             st.rerun()
         
-        # Conversation stats
         if st.session_state.conversation_history:
             user_msgs = len([msg for msg in st.session_state.conversation_history if msg.get('role') == 'user'])
             st.metric("Messages Exchanged", user_msgs)
         
         st.divider()
         
-        # Language support info
         st.info("🌐 **Bilingual Support**\n\nThe Chronicler responds in the same language you use - Arabic or English!")
     
-    # Main chat interface
     chat_container = st.container()
     
     with chat_container:
-        # Display conversation history
         messages_to_display = [msg for msg in st.session_state.conversation_history if msg.get('role') != 'system']
         
         if not messages_to_display:
@@ -717,10 +676,8 @@ def main():
                 idx
             )
     
-    # Example questions
     st.markdown("### 💡 Example Questions")
     
-    # English examples
     st.markdown("**🇬🇧 English Examples:**")
     example_cols1 = st.columns(2)
     
@@ -740,7 +697,6 @@ def main():
             process_user_message("What led to the 1952 Egyptian Revolution and what were its consequences?")
             st.rerun()
     
-    # Arabic examples
     st.markdown("**🇪🇬 أمثلة باللغة العربية:**")
     example_cols2 = st.columns(2)
     
@@ -760,7 +716,6 @@ def main():
             process_user_message("كيف تم بناء معبد الكرنك وما هي أهميته في مصر القديمة؟")
             st.rerun()
     
-    # Chat input
     user_input = st.chat_input("Ask the Chronicler about Egyptian history... | اسأل مؤرخ النيل عن التاريخ المصري...")
     
     if user_input:
