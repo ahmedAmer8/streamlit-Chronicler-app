@@ -313,7 +313,8 @@ def initialize_session_state():
         st.session_state.gemini_configured = False
     if 'show_classification' not in st.session_state:
         st.session_state.show_classification = False
-    st.session_state.show_research = True
+    if 'show_research' not in st.session_state:
+        st.session_state.show_research = False
 
 def configure_gemini():
     """Configure Google Gemini API"""
