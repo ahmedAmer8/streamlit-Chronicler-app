@@ -3,10 +3,30 @@ import google.generativeai as genai
 from datetime import datetime
 from typing import List, Dict, Tuple
 import re
-import os
 import wikipedia
 import requests
 from urllib.parse import quote
+from flask import Flask, request
+from twilio.twiml.messaging_response import MessagingResponse
+from twilio.rest import Client
+import threading
+import os
+import time
+from werkzeug.serving import run_simple
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_WHATSAPP_NUMBER = os.getenv("TWILIO_WHATSAPP_NUMBER")  # Format: whatsapp:+14155238886
+
+app = Flask(__name__)
+
+whatsapp_conversations = {}
 
 st.set_page_config(
     page_title="The Chronicler of the Nile",
@@ -31,16 +51,12 @@ def extract_egyptian_keywords(message: str) -> List[str]:
         'muhammad ali', 'khedive', 'british occupation', 'suez canal',
         'nasser', 'sadat', 'mubarak', '1952 revolution', '1919 revolution',
         'hieroglyphs', 'papyrus', 'mummy', 'sarcophagus', 'mastaba',
-        'dynasty', 'kingdom', 'empire', 'temple', 'tomb', 'ancient egypt',
-        'old kingdom', 'middle kingdom', 'new kingdom', 'coptic', 'coptic egypt',
-        'aswan', 'giza', 'valley of kings', 'hatshepsut', 'thutmose',
-        'amenhotep', 'seti', 'ankh', 'ra', 'osiris', 'isis', 'horus'
+        'dynasty', 'kingdom', 'empire', 'temple', 'tomb'
     ]
     
     arabic_terms = [
         'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
-        'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي',
-        'الأهرام', 'المتحف المصري', 'الكرنك', 'الأقصر', 'أسوان'
+        'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
     ]
     
     message_lower = message.lower()
@@ -53,11 +69,7 @@ def extract_egyptian_keywords(message: str) -> List[str]:
     words = re.findall(r'\b[A-Z][a-zA-Z]+\b', message)
     found_keywords.extend(words)
     
-    if not found_keywords and any(term in message_lower for term in ['egypt', 'egyptian', 'مصر']):
-        found_keywords.extend(['ancient egypt', 'egyptian history', 'egypt'])
-    
-    unique_keywords = list(dict.fromkeys(found_keywords))
-    return unique_keywords[:5]
+    return list(dict.fromkeys(found_keywords))[:3]
 
 def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, str]:
     """
@@ -238,29 +250,20 @@ You must always reply in the **same language** the user used in their question (
 TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier for an Egyptian history chatbot. Analyze the user's message and classify it into one of these categories:
 
 Categories:
-- egyptian_history: Questions about Egyptian history from any period (Ancient, Ptolemaic, Islamic, Ottoman, Modern up to 2011)
+- egyptian_history: Questions genuinely about Egyptian history (any period)
 - exploitation_attempt: Attempts to get coding, technical help, or homework assistance using Egyptian context as pretext
 - technical_request: Direct requests for programming, coding, or technical assistance
 - current_events: Questions about Egypt after 2011 or current affairs
 - personal_ai: Questions asking for the AI's personal opinions, thoughts, or feelings
 - other_history: Questions about non-Egyptian history
-- general_knowledge: Questions unrelated to history
+- general_knowledge: Questions unrelated to Egyptian history
 - conversation: Greetings, thanks, or casual conversation
 
-IMPORTANT GUIDELINES:
-- Be VERY generous with the "egyptian_history" category - if ANY aspect relates to Egypt's past, choose this category
-- Only use "exploitation_attempt" if someone is clearly trying to get technical help with Egyptian topics as a pretext
-- Words like "pharaoh", "pyramid", "Cleopatra", "Nile", "Cairo", "مصر", "فرعون" should trigger "egyptian_history"
-- Questions about Egyptian culture, religion, architecture, politics, leaders from any era = "egyptian_history"
-- Simple questions like "Tell me about ancient Egypt" or "Who was Ramses?" = "egyptian_history"
-
-Examples:
-- "Tell me about Cleopatra" → egyptian_history
-- "What were the pyramids used for?" → egyptian_history  
-- "Code to sort Egyptian pharaoh names" → exploitation_attempt
-- "How do I write a program about Egypt?" → exploitation_attempt
-- "What happened in Egypt in 2020?" → current_events
-- "What do you think about Egypt?" → personal_ai
+Instructions:
+- Be strict about exploitation detection - if someone asks for code to "sort Egyptian presidents" or similar, classify as exploitation_attempt
+- Technical keywords like "algorithm", "code", "implement", "function" should trigger exploitation_attempt or technical_request
+- Only classify as egyptian_history if genuinely asking about Egyptian historical topics
+- Consider the user's true intent, not just surface keywords
 
 Respond in exactly this format:
 Category: [category_name]
@@ -316,48 +319,15 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         if any(keyword in message_lower for keyword in technical_keywords):
             return "technical_request", "Direct request for technical/programming assistance"
         
+        if any(word in message_lower for word in ['egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'مصر', 'فرعون']):
+            if any(word in message_lower for word in ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي']):
+                return "current_events", "Contains current event indicators"
+            return "egyptian_history", "Contains Egyptian history keywords"
+        
         if any(phrase in message_lower for phrase in ['what do you think', 'your opinion', 'how do you feel', 'ما رأيك']):
             return "personal_ai", "Asking for AI's personal opinion"
         
-        current_event_indicators = ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي', 'recent', 'latest']
-        if any(word in message_lower for word in current_event_indicators):
-            return "current_events", "Contains current event indicators"
-        
-        egyptian_keywords = [
-            'egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'cairo', 'alexandria',
-            'cleopatra', 'ramses', 'tutankhamun', 'akhenaten', 'nefertiti',
-            'memphis', 'thebes', 'luxor', 'karnak', 'abu simbel',
-            'ptolemy', 'macedonian', 'roman egypt', 'byzantine',
-            'arab conquest', 'fatimid', 'ayyubid', 'mamluk', 'ottoman',
-            'muhammad ali', 'khedive', 'british occupation', 'suez canal',
-            'nasser', 'sadat', 'mubarak', '1952 revolution', '1919 revolution',
-            'hieroglyphs', 'papyrus', 'mummy', 'sarcophagus', 'mastaba',
-            'dynasty', 'kingdom', 'empire', 'temple', 'tomb',
-            'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
-            'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
-        ]
-        
-        if any(word in message_lower for word in egyptian_keywords):
-            return "egyptian_history", "Contains Egyptian history keywords"
-        
-        greeting_phrases = [
-            'hello', 'hi', 'greetings', 'good morning', 'good afternoon', 'good evening',
-            'مرحبا', 'أهلا', 'السلام عليكم', 'صباح الخير', 'مساء الخير',
-            'thank you', 'thanks', 'شكرا', 'شكرًا'
-        ]
-        
-        if any(phrase in message_lower for phrase in greeting_phrases):
-            return "conversation", "Greeting or conversational message"
-        
-        other_history_keywords = [
-            'rome', 'greece', 'china', 'india', 'france', 'england', 'america',
-            'napoleon', 'hitler', 'world war', 'crusades'
-        ]
-        
-        if any(word in message_lower for word in other_history_keywords):
-            return "other_history", "Contains non-Egyptian history keywords"
-        
-        return "general_knowledge", "No specific category detected"
+        return "general_knowledge", "General topic classification"
 
 def initialize_session_state():
     """Initialize session state variables"""
@@ -375,12 +345,12 @@ def initialize_session_state():
 def configure_gemini():
     """Configure Google Gemini API"""
     try:
-        api_key = None
+        api_key = os.getenv("GEMINI_API_KEY")
         
-        try:
-            api_key = st.secrets["GEMINI_API_KEY"]
-        except:
-            api_key = os.getenv("GEMINI_API_KEY")
+        # try:
+        #     api_key = st.secrets["GEMINI_API_KEY"]
+        # except:
+        #     api_key = os.getenv("GEMINI_API_KEY")
         
         if api_key:
             genai.configure(api_key=api_key)
@@ -630,8 +600,359 @@ def process_user_message(user_input: str):
                 st.markdown("---")
                 display_wikipedia_sources(wikipedia_results, message_key)
 
+
+def split_message_for_whatsapp(message: str, max_length: int = 1500) -> List[str]:
+    """Split long messages into WhatsApp-compatible chunks"""
+    if len(message) <= max_length:
+        return [message]
+    
+    # Try to split by paragraphs first
+    paragraphs = message.split('\n\n')
+    chunks = []
+    current_chunk = ""
+    
+    for paragraph in paragraphs:
+        # If adding this paragraph would exceed limit
+        if len(current_chunk) + len(paragraph) + 2 > max_length:  # +2 for \n\n
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+                current_chunk = paragraph
+            else:
+                # Single paragraph is too long, split by sentences
+                sentences = paragraph.split('. ')
+                temp_chunk = ""
+                for sentence in sentences:
+                    if len(temp_chunk) + len(sentence) + 2 > max_length:
+                        if temp_chunk:
+                            chunks.append(temp_chunk.strip() + '.')
+                            temp_chunk = sentence
+                        else:
+                            # Single sentence too long, force split
+                            while len(sentence) > max_length:
+                                chunks.append(sentence[:max_length-3] + "...")
+                                sentence = sentence[max_length-3:]
+                            temp_chunk = sentence
+                    else:
+                        if temp_chunk:
+                            temp_chunk += ". " + sentence
+                        else:
+                            temp_chunk = sentence
+                
+                if temp_chunk:
+                    current_chunk = temp_chunk
+        else:
+            if current_chunk:
+                current_chunk += "\n\n" + paragraph
+            else:
+                current_chunk = paragraph
+    
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+    
+    # Add continuation indicators
+    if len(chunks) > 1:
+        for i in range(len(chunks)):
+            if i == 0:
+                chunks[i] += f"\n\n📜 (جزء {i+1} من {len(chunks)}) / (Part {i+1} of {len(chunks)})"
+            elif i == len(chunks) - 1:
+                chunks[i] = f"📜 (تتمة {i+1}/{len(chunks)}) / (Continued {i+1}/{len(chunks)})\n\n" + chunks[i]
+            else:
+                chunks[i] = f"📜 (تتمة {i+1}/{len(chunks)}) / (Continued {i+1}/{len(chunks)})\n\n" + chunks[i] + f"\n\n📜 (يتبع...) / (Continued...)"
+    
+    return chunks
+
+
+
+def get_whatsapp_conversation(phone_number: str) -> List[Dict]:
+    """Get or create conversation history for a WhatsApp user"""
+    if phone_number not in whatsapp_conversations:
+        whatsapp_conversations[phone_number] = []
+    return whatsapp_conversations[phone_number]
+
+def save_whatsapp_message(phone_number: str, role: str, content: str):
+    """Save message to WhatsApp conversation history"""
+    if phone_number not in whatsapp_conversations:
+        whatsapp_conversations[phone_number] = []
+    
+    message = {
+        'role': role,
+        'content': content,
+        'timestamp': datetime.now().isoformat()
+    }
+    whatsapp_conversations[phone_number].append(message)
+    
+    # Keep only last 20 messages to manage memory
+    if len(whatsapp_conversations[phone_number]) > 20:
+        whatsapp_conversations[phone_number] = whatsapp_conversations[phone_number][-20:]
+
+def process_whatsapp_message(user_message: str, phone_number: str) -> List[str]:
+    """Process WhatsApp message and return list of response chunks"""
+    try:
+        print(f"Processing message from {phone_number}: {user_message}")
+        
+        # Get conversation history for this user
+        history = get_whatsapp_conversation(phone_number)
+        
+        # Save user message
+        save_whatsapp_message(phone_number, 'user', user_message)
+        
+        # Enhanced classification for WhatsApp
+        response_text = process_whatsapp_with_classification(user_message, history)
+        print(f"Generated response: {response_text[:100]}...")
+        
+        # Save assistant response
+        save_whatsapp_message(phone_number, 'assistant', response_text)
+        
+        # Split response into WhatsApp-compatible chunks
+        response_chunks = split_message_for_whatsapp(response_text)
+        print(f"Split into {len(response_chunks)} chunks")
+        
+        return response_chunks
+        
+    except Exception as e:
+        print(f"Error processing WhatsApp message: {e}")
+        error_msg = "أعتذر، حدث خطأ أثناء استشارة السجلات التاريخية. يرجى المحاولة مرة أخرى.\n\nI apologize, an error occurred while consulting the historical records. Please try again."
+        return [error_msg]
+
+def process_whatsapp_with_classification(user_message: str, history: List[Dict]) -> str:
+    """Process WhatsApp message with proper classification"""
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        
+        message_lower = user_message.lower()
+        is_arabic = detect_arabic(user_message)
+        
+        # Check for exploitation attempts
+        exploitation_keywords = [
+            'code', 'implement', 'algorithm', 'script', 'program', 'function',
+            'sort', 'calculate', 'write me', 'help me code', 'tutorial',
+            'how to create', 'how to build', 'assignment', 'homework'
+        ]
+        
+        if any(keyword in message_lower for keyword in exploitation_keywords):
+            if is_arabic:
+                return "أنا مؤرخ النيل، مكرس حصريًا لمشاركة المعرفة حول التاريخ المصري. لا يمكنني المساعدة في البرمجة أو التطبيقات التقنية. ما الذي تود معرفته عن تاريخ مصر؟"
+            else:
+                return "I am the Chronicler of the Nile, dedicated exclusively to sharing knowledge about Egyptian history. I cannot assist with coding or technical implementations. What would you like to know about Egypt's history?"
+        
+        # Check for current events (after 2011)
+        current_keywords = ['الآن', 'اليوم', 'حاليا', 'now', 'today', 'current', '2024', '2025', 'سيسي', 'sisi']
+        if any(keyword in message_lower for keyword in current_keywords):
+            if is_arabic:
+                return "سجلاتي التاريخية تنتهي في عام 2011. لا يمكنني تقديم معلومات عن الأحداث الأحدث. ولكنني سأكون سعيداً لمناقشة تاريخ مصر الغني حتى ذلك التاريخ."
+            else:
+                return "My historical records conclude in 2011. I cannot provide information about more recent events. However, I'd be happy to discuss Egypt's rich history up to that point."
+        
+        # Check for personal AI questions
+        personal_keywords = ['رأيك', 'تفكر', 'شعورك', 'your opinion', 'what do you think', 'how do you feel']
+        if any(keyword in message_lower for keyword in personal_keywords):
+            if is_arabic:
+                return "كوني ذكاء اصطناعي مختص في التاريخ المصري، لا أملك أفكارًا أو آراء شخصية. صُممت لتقديم معلومات علمية دقيقة عن ماضي مصر الرائع. أي جانب من التاريخ المصري تود أن نستكشفه؟"
+            else:
+                return "As an AI historian focused on Egyptian history, I don't have personal thoughts or opinions. I'm designed to provide factual, scholarly information about Egypt's fascinating past. What aspect of Egyptian history would you like to explore?"
+        
+        # Check for Egyptian history keywords
+        egyptian_keywords = [
+            'مصر', 'مصري', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
+            'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'مبارك', 'ناصر', 'السادات',
+            'حرب أكتوبر', 'ثورة 1952', 'ثورة 1919', 'محمد علي', 'الفاطميين',
+            'الأيوبيين', 'المماليك', 'العثمانيين', 'قناة السويس',
+            'egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'cairo', 'alexandria',
+            'cleopatra', 'ramses', 'tutankhamun', 'mubarak', 'nasser', 'sadat',
+            'october war', '1952 revolution', '1919 revolution', 'muhammad ali',
+            'fatimid', 'ayyubid', 'mamluk', 'ottoman', 'suez canal'
+        ]
+        
+        # Check for greetings and conversation starters FIRST
+        greeting_keywords = [
+            'مرحبا', 'السلام عليكم', 'أهلا', 'صباح الخير', 'مساء الخير',
+            'hello', 'hi', 'hey', 'good morning', 'good evening', 'greetings'
+        ]
+        
+        if any(keyword in message_lower for keyword in greeting_keywords) or len(user_message.strip()) < 10:
+            if is_arabic:
+                return "مرحباً! أنا مؤرخ النيل، مختص في التاريخ المصري عبر جميع العصور. كيف يمكنني مساعدتك في استكشاف تاريخ مصر العريق؟\n\nيمكنك أن تسألني عن:\n🏺 مصر القديمة والفراعنة\n🕌 العصر الإسلامي والعثماني\n🏛️ مصر الحديثة حتى 2011"
+            else:
+                return "Hello! I'm the Chronicler of the Nile, specializing in Egyptian history across all eras. How can I help you explore Egypt's rich historical heritage?\n\nYou can ask me about:\n🏺 Ancient Egypt and Pharaohs\n🕌 Islamic and Ottoman periods\n🏛️ Modern Egypt up to 2011"
+        
+        # Check if it's about Egyptian history
+        if any(keyword in message_lower for keyword in egyptian_keywords):
+            try:
+                # Add system prompt to history if it's the first message for this user
+                if not history or not any(msg.get('role') == 'system' for msg in history):
+                    whatsapp_system_prompt = """You are "The Chronicler of the Nile" — an AI historian specializing in Egyptian history from ancient times to 2011.
+
+Provide accurate, engaging responses about Egyptian history. Keep responses informative but concise for WhatsApp format (under 1500 characters when possible). Always respond in the same language the user uses (Arabic or English).
+
+Cover all periods: Ancient Egypt, Graeco-Roman, Islamic, Ottoman, and Modern Egypt up to 2011.
+
+Be scholarly yet accessible. Provide historical context and significance."""
+                    
+                    system_message = {
+                        'role': 'system',
+                        'content': whatsapp_system_prompt,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    history.insert(0, system_message)
+                
+                managed_history = manage_conversation_length(history, max_length=10)
+                gemini_history = format_conversation_for_gemini(managed_history)
+                
+                model = genai.GenerativeModel(
+                    model_name="gemini-2.5-pro",
+                    generation_config=genai.types.GenerationConfig(
+                        temperature=0.7,
+                        top_p=0.8,
+                        top_k=40,
+                        max_output_tokens=1500,  # Reduced for WhatsApp
+                        candidate_count=1
+                    )
+                )
+                
+                chat = model.start_chat(history=gemini_history)
+                response = chat.send_message(user_message)
+                
+                return response.text
+                
+            except Exception as e:
+                print(f"Gemini API error in WhatsApp: {e}")
+                # Fallback response if Gemini fails
+                if is_arabic:
+                    return "أعتذر، حدث خطأ أثناء استشارة السجلات التاريخية. يرجى إعادة صياغة السؤال أو المحاولة مرة أخرى."
+                else:
+                    return "I apologize, an error occurred while consulting the historical records. Please rephrase your question or try again."
+        
+        if is_arabic:
+            return "أتخصص حصريًا في التاريخ المصري عبر جميع العصور. يرجى سؤالي عن أي موضوع متعلق بتاريخ مصر من العصور القديمة حتى 2011.\n\nمثال: أخبرني عن حرب أكتوبر، أو عن كليوباترا، أو عن الأهرامات."
+        else:
+            return "I specialize exclusively in Egyptian history across all periods. Please ask me about any topic related to Egypt's history from ancient times to 2011.\n\nFor example: Tell me about the October War, or about Cleopatra, or about the pyramids."
+            
+    except Exception as e:
+        print(f"WhatsApp processing error: {e}")
+        if detect_arabic(user_message):
+            return "أعتذر، حدث خطأ أثناء معالجة رسالتك. يرجى المحاولة مرة أخرى."
+        else:
+            return "I apologize, an error occurred while processing your message. Please try again."
+        
+ 
+@app.route("/webhook", methods=['POST'])
+def whatsapp_webhook():
+    """Handle incoming WhatsApp messages with message splitting"""
+    try:
+        print("Received WhatsApp webhook request")
+        
+        # Get message details
+        incoming_msg = request.values.get('Body', '').strip()
+        from_number = request.values.get('From', '')
+        
+        print(f"Message: {incoming_msg}")
+        print(f"From: {from_number}")
+        
+        # Extract phone number (remove whatsapp: prefix)
+        phone_number = from_number.replace('whatsapp:', '')
+        
+        # Create Twilio response object
+        resp = MessagingResponse()
+        
+        # Process the message and get response chunks
+        if incoming_msg:
+            try:
+                response_chunks = process_whatsapp_message(incoming_msg, phone_number)
+                print(f"Generated {len(response_chunks)} response chunks")
+                
+                # Send the first chunk as immediate response
+                if response_chunks:
+                    msg = resp.message()
+                    msg.body(response_chunks[0])
+                    print(f"Sending first chunk: {response_chunks[0][:50]}...")
+                    
+                    # If there are additional chunks, send them using Twilio client
+                    if len(response_chunks) > 1:
+                        def send_additional_messages():
+                            try:
+                                import time
+                                time.sleep(2)  # Wait before sending additional messages
+                                
+                                client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+                                for i, chunk in enumerate(response_chunks[1:], 1):
+                                    print(f"Sending chunk {i+1}: {chunk[:50]}...")
+                                    message = client.messages.create(
+                                        body=chunk,
+                                        from_=TWILIO_WHATSAPP_NUMBER,
+                                        to=from_number
+                                    )
+                                    print(f"Message SID: {message.sid}")
+                                    time.sleep(1)  # Delay between messages
+                            except Exception as e:
+                                print(f"Error sending additional messages: {e}")
+                        
+                        # Send additional messages in background
+                        import threading
+                        thread = threading.Thread(target=send_additional_messages)
+                        thread.daemon = True
+                        thread.start()
+                else:
+                    # No response generated
+                    msg = resp.message()
+                    msg.body("Sorry, I couldn't generate a response. Please try again.")
+                    
+            except Exception as e:
+                print(f"Error processing message: {e}")
+                msg = resp.message()
+                msg.body("حدث خطأ أثناء معالجة رسالتك. يرجى المحاولة مرة أخرى.\n\nAn error occurred while processing your message. Please try again.")
+        else:
+            # Empty message
+            msg = resp.message()
+            msg.body("مرحباً! أنا مؤرخ النيل. اسألني عن التاريخ المصري.\n\nHello! I'm the Chronicler of the Nile. Ask me about Egyptian history.")
+        
+        print(f"Webhook response: {str(resp)}")
+        return str(resp)
+            
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        # Emergency fallback response
+        resp = MessagingResponse()
+        msg = resp.message()
+        msg.body("System error. Please try again.")
+        return str(resp)
+
+
+@app.route("/webhook", methods=['GET'])
+def webhook_get():
+    """Health check endpoint"""
+    return "WhatsApp Webhook is running!", 200
+
+def run_flask_app():
+    """Run Flask app in a separate thread"""
+    try:
+        print("Starting Flask app on 0.0.0.0:5000")
+        app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False, threaded=True)
+    except Exception as e:
+        print(f"Flask app error: {e}")
+        
+
+def start_whatsapp_service():
+    """Start WhatsApp service if Twilio credentials are available"""
+    if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_WHATSAPP_NUMBER:
+        print("🔄 Starting WhatsApp service...")
+        flask_thread = threading.Thread(target=run_flask_app, daemon=True)
+        flask_thread.start()
+        print("✅ WhatsApp service started on port 5000")
+        print("📱 Webhook URL: http://your-ngrok-url.ngrok.io/webhook")
+        return True
+    else:
+        print("⚠️ WhatsApp service not started - Twilio credentials not configured")
+        return False
+
+
+
+
 def main():
     initialize_session_state()
+    
+    
+    whatsapp_enabled = start_whatsapp_service()
+    
     
     if not st.session_state.gemini_configured:
         if not configure_gemini():
@@ -670,6 +991,14 @@ def main():
         
         st.divider()
         
+        if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+            st.success("📱 WhatsApp Service Active")
+            st.caption("Available via WhatsApp integration")
+        else:
+            st.info("📱 WhatsApp Service Disabled")
+            st.caption("Configure Twilio credentials to enable")
+            
+            
         st.warning("""
         🛡️ **Protected Assistant**
         
