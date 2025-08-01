@@ -3,18 +3,10 @@ import google.generativeai as genai
 from datetime import datetime
 from typing import List, Dict, Tuple
 import re
+import os
 import wikipedia
 import requests
-import os
-from dotenv import load_dotenv
-
-
-load_dotenv()
-
-
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-
+from urllib.parse import quote
 
 st.set_page_config(
     page_title="The Chronicler of the Nile",
@@ -333,12 +325,12 @@ def initialize_session_state():
 def configure_gemini():
     """Configure Google Gemini API"""
     try:
-        api_key = os.getenv("GEMINI_API_KEY")
+        api_key = None
         
-        # try:
-        #     api_key = st.secrets["GEMINI_API_KEY"]
-        # except:
-        #     api_key = os.getenv("GEMINI_API_KEY")
+        try:
+            api_key = st.secrets["GEMINI_API_KEY"]
+        except:
+            api_key = os.getenv("GEMINI_API_KEY")
         
         if api_key:
             genai.configure(api_key=api_key)
@@ -588,18 +580,8 @@ def process_user_message(user_input: str):
                 st.markdown("---")
                 display_wikipedia_sources(wikipedia_results, message_key)
 
-
-
-
-
-
-
-
 def main():
     initialize_session_state()
-    
-    
-    
     
     if not st.session_state.gemini_configured:
         if not configure_gemini():
@@ -638,14 +620,6 @@ def main():
         
         st.divider()
         
-        if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
-            st.success("📱 WhatsApp Service Active")
-            st.caption("Available via WhatsApp integration")
-        else:
-            st.info("📱 WhatsApp Service Disabled")
-            st.caption("Configure Twilio credentials to enable")
-            
-            
         st.warning("""
         🛡️ **Protected Assistant**
         
