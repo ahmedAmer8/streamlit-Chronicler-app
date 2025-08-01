@@ -254,7 +254,7 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
     """Use LLM to classify the topic and detect exploitation attempts"""
     try:
         model = genai.GenerativeModel(
-            model_name="gemini-2.1-pro",  
+            model_name="gemini-2.5-pro",  
             generation_config=genai.types.GenerationConfig(
                 temperature=0.1,
                 max_output_tokens=150,
