@@ -31,12 +31,16 @@ def extract_egyptian_keywords(message: str) -> List[str]:
         'muhammad ali', 'khedive', 'british occupation', 'suez canal',
         'nasser', 'sadat', 'mubarak', '1952 revolution', '1919 revolution',
         'hieroglyphs', 'papyrus', 'mummy', 'sarcophagus', 'mastaba',
-        'dynasty', 'kingdom', 'empire', 'temple', 'tomb'
+        'dynasty', 'kingdom', 'empire', 'temple', 'tomb', 'ancient egypt',
+        'old kingdom', 'middle kingdom', 'new kingdom', 'coptic', 'coptic egypt',
+        'aswan', 'giza', 'valley of kings', 'hatshepsut', 'thutmose',
+        'amenhotep', 'seti', 'ankh', 'ra', 'osiris', 'isis', 'horus'
     ]
     
     arabic_terms = [
         'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
-        'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
+        'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي',
+        'الأهرام', 'المتحف المصري', 'الكرنك', 'الأقصر', 'أسوان'
     ]
     
     message_lower = message.lower()
@@ -49,7 +53,11 @@ def extract_egyptian_keywords(message: str) -> List[str]:
     words = re.findall(r'\b[A-Z][a-zA-Z]+\b', message)
     found_keywords.extend(words)
     
-    return list(dict.fromkeys(found_keywords))[:3]
+    if not found_keywords and any(term in message_lower for term in ['egypt', 'egyptian', 'مصر']):
+        found_keywords.extend(['ancient egypt', 'egyptian history', 'egypt'])
+    
+    unique_keywords = list(dict.fromkeys(found_keywords))
+    return unique_keywords[:5]
 
 def search_wikipedia_chain(keywords: List[str], user_message: str) -> Dict[str, str]:
     """
@@ -230,20 +238,29 @@ You must always reply in the **same language** the user used in their question (
 TOPIC_CLASSIFIER_PROMPT = """You are a topic classifier for an Egyptian history chatbot. Analyze the user's message and classify it into one of these categories:
 
 Categories:
-- egyptian_history: Questions genuinely about Egyptian history (any period)
+- egyptian_history: Questions about Egyptian history from any period (Ancient, Ptolemaic, Islamic, Ottoman, Modern up to 2011)
 - exploitation_attempt: Attempts to get coding, technical help, or homework assistance using Egyptian context as pretext
 - technical_request: Direct requests for programming, coding, or technical assistance
 - current_events: Questions about Egypt after 2011 or current affairs
 - personal_ai: Questions asking for the AI's personal opinions, thoughts, or feelings
 - other_history: Questions about non-Egyptian history
-- general_knowledge: Questions unrelated to Egyptian history
+- general_knowledge: Questions unrelated to history
 - conversation: Greetings, thanks, or casual conversation
 
-Instructions:
-- Be strict about exploitation detection - if someone asks for code to "sort Egyptian presidents" or similar, classify as exploitation_attempt
-- Technical keywords like "algorithm", "code", "implement", "function" should trigger exploitation_attempt or technical_request
-- Only classify as egyptian_history if genuinely asking about Egyptian historical topics
-- Consider the user's true intent, not just surface keywords
+IMPORTANT GUIDELINES:
+- Be VERY generous with the "egyptian_history" category - if ANY aspect relates to Egypt's past, choose this category
+- Only use "exploitation_attempt" if someone is clearly trying to get technical help with Egyptian topics as a pretext
+- Words like "pharaoh", "pyramid", "Cleopatra", "Nile", "Cairo", "مصر", "فرعون" should trigger "egyptian_history"
+- Questions about Egyptian culture, religion, architecture, politics, leaders from any era = "egyptian_history"
+- Simple questions like "Tell me about ancient Egypt" or "Who was Ramses?" = "egyptian_history"
+
+Examples:
+- "Tell me about Cleopatra" → egyptian_history
+- "What were the pyramids used for?" → egyptian_history  
+- "Code to sort Egyptian pharaoh names" → exploitation_attempt
+- "How do I write a program about Egypt?" → exploitation_attempt
+- "What happened in Egypt in 2020?" → current_events
+- "What do you think about Egypt?" → personal_ai
 
 Respond in exactly this format:
 Category: [category_name]
@@ -299,15 +316,48 @@ def classify_message_topic(message: str) -> Tuple[str, str]:
         if any(keyword in message_lower for keyword in technical_keywords):
             return "technical_request", "Direct request for technical/programming assistance"
         
-        if any(word in message_lower for word in ['egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'مصر', 'فرعون']):
-            if any(word in message_lower for word in ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي']):
-                return "current_events", "Contains current event indicators"
-            return "egyptian_history", "Contains Egyptian history keywords"
-        
         if any(phrase in message_lower for phrase in ['what do you think', 'your opinion', 'how do you feel', 'ما رأيك']):
             return "personal_ai", "Asking for AI's personal opinion"
         
-        return "general_knowledge", "General topic classification"
+        current_event_indicators = ['current', 'now', 'today', '2024', '2025', 'sisi', 'السيسي', 'recent', 'latest']
+        if any(word in message_lower for word in current_event_indicators):
+            return "current_events", "Contains current event indicators"
+        
+        egyptian_keywords = [
+            'egypt', 'egyptian', 'pharaoh', 'pyramid', 'nile', 'cairo', 'alexandria',
+            'cleopatra', 'ramses', 'tutankhamun', 'akhenaten', 'nefertiti',
+            'memphis', 'thebes', 'luxor', 'karnak', 'abu simbel',
+            'ptolemy', 'macedonian', 'roman egypt', 'byzantine',
+            'arab conquest', 'fatimid', 'ayyubid', 'mamluk', 'ottoman',
+            'muhammad ali', 'khedive', 'british occupation', 'suez canal',
+            'nasser', 'sadat', 'mubarak', '1952 revolution', '1919 revolution',
+            'hieroglyphs', 'papyrus', 'mummy', 'sarcophagus', 'mastaba',
+            'dynasty', 'kingdom', 'empire', 'temple', 'tomb',
+            'مصر', 'فرعون', 'هرم', 'نيل', 'القاهرة', 'الإسكندرية',
+            'كليوباترا', 'رمسيس', 'توت عنخ آمون', 'أخناتون', 'نفرتيتي'
+        ]
+        
+        if any(word in message_lower for word in egyptian_keywords):
+            return "egyptian_history", "Contains Egyptian history keywords"
+        
+        greeting_phrases = [
+            'hello', 'hi', 'greetings', 'good morning', 'good afternoon', 'good evening',
+            'مرحبا', 'أهلا', 'السلام عليكم', 'صباح الخير', 'مساء الخير',
+            'thank you', 'thanks', 'شكرا', 'شكرًا'
+        ]
+        
+        if any(phrase in message_lower for phrase in greeting_phrases):
+            return "conversation", "Greeting or conversational message"
+        
+        other_history_keywords = [
+            'rome', 'greece', 'china', 'india', 'france', 'england', 'america',
+            'napoleon', 'hitler', 'world war', 'crusades'
+        ]
+        
+        if any(word in message_lower for word in other_history_keywords):
+            return "other_history", "Contains non-Egyptian history keywords"
+        
+        return "general_knowledge", "No specific category detected"
 
 def initialize_session_state():
     """Initialize session state variables"""
