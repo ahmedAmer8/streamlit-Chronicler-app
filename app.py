@@ -5,14 +5,7 @@ from typing import List, Dict, Tuple
 import re
 import wikipedia
 import requests
-from urllib.parse import quote
-from flask import Flask, request
-from twilio.twiml.messaging_response import MessagingResponse
-from twilio.rest import Client
-import threading
 import os
-import time
-from werkzeug.serving import run_simple
 from dotenv import load_dotenv
 
 
